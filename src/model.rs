@@ -93,7 +93,7 @@ impl YOLOv8 {
         (r, (w0 * r).round(), (h0 * r).round())
     }
 
-    pub fn preprocess(&mut self, xs: &Vec<DynamicImage>) -> Result<Array<f32, IxDyn>> {
+    pub fn preprocess(&mut self, xs: &[DynamicImage]) -> Result<Array<f32, IxDyn>> {
         let mut ys =
             Array::ones((xs.len(), 3, self.height() as usize, self.width() as usize)).into_dyn();
         ys.fill(144.0 / 255.0);
@@ -126,7 +126,7 @@ impl YOLOv8 {
         Ok(ys)
     }
 
-    pub fn run(&mut self, xs: &Vec<DynamicImage>) -> Result<Vec<YOLOResult>> {
+    pub fn run(&mut self, xs: &[DynamicImage]) -> Result<Vec<YOLOResult>> {
         // pre-process
         let t_pre = std::time::Instant::now();
         let xs_ = self.preprocess(xs)?;
@@ -220,7 +220,7 @@ impl YOLOv8 {
             // decode
             let mut y_bboxes: Vec<Bbox> = Vec::new();
             let mut y_kpts: Vec<Vec<Point2>> = Vec::new();
-            let mut y_masks: Vec<Vec<u8>> = Vec::new();
+            let mut masks = Vec::new();
             for elem in data.into_iter() {
                 if let Some(kpts) = elem.1 {
                     y_kpts.push(kpts)
@@ -230,11 +230,13 @@ impl YOLOv8 {
                 if let Some(coefs) = elem.2 {
                     let proto = protos.unwrap().slice(s![idx, .., .., ..]);
                     let (nm, nh, nw) = proto.dim();
+                    dbg!(nm, nh, nw);
 
                     // coefs * proto -> mask
                     let coefs = Array::from_shape_vec((1, nm), coefs)?; // (n, nm)
                     let proto = proto.to_owned().into_shape((nm, nh * nw))?; // (nm, nh*nw)
                     let mask = coefs.dot(&proto).into_shape((nh, nw, 1))?; // (nh, nw, n)
+                    dbg!(mask.shape());
 
                     // build image from ndarray
                     let mask_im: ImageBuffer<image::Luma<_>, Vec<f32>> =
@@ -274,7 +276,7 @@ impl YOLOv8 {
                             }
                         }
                     }
-                    y_masks.push(mask_original_cropped.into_raw());
+                    masks.push(mask_original_cropped);
                 }
                 y_bboxes.push(elem.0);
             }
@@ -292,11 +294,7 @@ impl YOLOv8 {
                 } else {
                     None
                 },
-                masks: if !y_masks.is_empty() {
-                    Some(y_masks)
-                } else {
-                    None
-                },
+                masks,
             };
             ys.push(y);
         }

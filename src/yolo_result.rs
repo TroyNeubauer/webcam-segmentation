@@ -1,3 +1,4 @@
+use image::Luma;
 use ndarray::{Array, Axis, IxDyn};
 
 #[derive(Clone, PartialEq, Default)]
@@ -6,7 +7,7 @@ pub struct YOLOResult {
     pub probs: Option<Embedding>,
     pub bboxes: Option<Vec<Bbox>>,
     pub keypoints: Option<Vec<Vec<Point2>>>,
-    pub masks: Option<Vec<Vec<u8>>>,
+    pub masks: Vec<image::ImageBuffer<Luma<u8>, Vec<u8>>>,
 }
 
 impl std::fmt::Debug for YOLOResult {
@@ -14,51 +15,12 @@ impl std::fmt::Debug for YOLOResult {
         f.debug_struct("YOLOResult")
             .field(
                 "Probs(top5)",
-                &format_args!("{:?}", self.probs().map(|probs| probs.topk(5))),
+                &format_args!("{:?}", self.probs.as_ref().map(|probs| probs.topk(5))),
             )
             .field("Bboxes", &self.bboxes)
             .field("Keypoints", &self.keypoints)
-            .field(
-                "Masks",
-                &format_args!("{:?}", self.masks().map(|masks| masks.len())),
-            )
+            .field("Masks", &format_args!("{:?}", self.masks.len()))
             .finish()
-    }
-}
-
-impl YOLOResult {
-    pub fn new(
-        probs: Option<Embedding>,
-        bboxes: Option<Vec<Bbox>>,
-        keypoints: Option<Vec<Vec<Point2>>>,
-        masks: Option<Vec<Vec<u8>>>,
-    ) -> Self {
-        Self {
-            probs,
-            bboxes,
-            keypoints,
-            masks,
-        }
-    }
-
-    pub fn probs(&self) -> Option<&Embedding> {
-        self.probs.as_ref()
-    }
-
-    pub fn keypoints(&self) -> Option<&Vec<Vec<Point2>>> {
-        self.keypoints.as_ref()
-    }
-
-    pub fn masks(&self) -> Option<&Vec<Vec<u8>>> {
-        self.masks.as_ref()
-    }
-
-    pub fn bboxes(&self) -> Option<&Vec<Bbox>> {
-        self.bboxes.as_ref()
-    }
-
-    pub fn bboxes_mut(&mut self) -> Option<&mut Vec<Bbox>> {
-        self.bboxes.as_mut()
     }
 }
 

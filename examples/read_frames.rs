@@ -104,7 +104,20 @@ fn main() {
         }
         .unwrap();
 
-        opencv::imgcodecs::imwrite("out.bmp", &rgb, &opencv::core::Vector::new());
+        let mut rgba = unsafe {
+            Mat::new_size(
+                Size {
+                    width: width as i32,
+                    height: height as i32,
+                },
+                CV_8UC4,
+            )
+        }
+        .unwrap();
+
+        opencv::imgproc::cvt_color(&rgb, &mut rgba, COLOR_RGB2RGBA, 0);
+
+        opencv::imgcodecs::imwrite("out.bmp", &rgba, &opencv::core::Vector::new());
         break;
 
         // To process the captured data, you can pass it somewhere else.
