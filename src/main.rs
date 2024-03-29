@@ -1,9 +1,14 @@
-
 use std::time::Instant;
 
 use clap::Parser;
 
+use opencv::core::{Size, CV_8UC4};
+use opencv::prelude::*;
+
 use image::DynamicImage;
+use turbojpeg::Compressor;
+use turbojpeg::Decompressor;
+use turbojpeg::OutputBuf;
 use yolov8_rs::{Args, YOLOv8};
 
 use v4l::buffer::Type;
@@ -95,19 +100,78 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .find_map(|(idx, name)| if name == "person" { Some(idx) } else { None })
         .expect("Model missing `person` bbox name");
 
+    // ========== General Allocations ==========
+
+    let mut compressor = Compressor::new().unwrap();
+    let mut decompressor = Decompressor::new().unwrap();
+    let mut jpeg_buf = OutputBuf::new_owned();
+    let mut rgb_pixels = vec![0; 3 * (width * height) as usize];
+
+    // SAFETY: Memory allocated by opencv
+    let mut rgba = unsafe {
+        Mat::new_size(
+            Size {
+                width: width as i32,
+                height: height as i32,
+            },
+            CV_8UC4,
+        )
+    }
+    .unwrap();
+
+    // SAFETY: Memory allocated by opencv
+    let mut mask_rgba = unsafe {
+        Mat::new_size(
+            Size {
+                width: width as i32,
+                height: height as i32,
+            },
+            CV_8UC4,
+        )
+    }
+    .unwrap();
+
+    // SAFETY: Memory allocated by opencv
+    let mut masked = unsafe {
+        Mat::new_size(
+            Size {
+                width: width as i32,
+                height: height as i32,
+            },
+            CV_8UC4,
+        )
+    }
+    .unwrap();
+
     loop {
-        let (jpeg, _buf_in_meta) = CaptureStream::next(&mut in_stream).unwrap();
+        println!("");
+        println!("");
+        let (jpeg, buf_in_meta) = CaptureStream::next(&mut in_stream).unwrap();
         let (buf_out, buf_out_meta) = v4l::io::traits::OutputStream::next(&mut out_stream).unwrap();
 
-        let start = Instant::now();
+        let iteration_start = Instant::now();
 
         use opencv::{core::*, imgproc::*};
 
-        let mut pixels = turbojpeg::decompress_image::<image::Rgb<u8>>(jpeg)
-            .unwrap()
-            .into_vec();
+        let start = Instant::now();
+        decompressor
+            .decompress(
+                jpeg,
+                turbojpeg::Image {
+                    pixels: rgb_pixels.as_mut_slice(),
+                    width: width as usize,
+                    pitch: 3 * width as usize,
+                    height: height as usize,
+                    format: turbojpeg::PixelFormat::RGB,
+                },
+            )
+            .unwrap();
+        println!("Decompress took: {:?}", start.elapsed());
 
-        //let yuv = Mat::from_slice_rows_cols(buf, height, width as usize).unwrap();
+        // SAFETY:
+        // 1. `rgb_pixels` lives for the entire duration of the loop
+        // 2. `rgb_pixels` has len `width * height * 3` by allocation above
+        // 3. `rgb_pixels` decoded by turbojpeg as turbojpeg::PixelFormat::RGB
         let rgb = unsafe {
             Mat::new_size_with_data(
                 Size {
@@ -115,108 +179,109 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     height: height as i32,
                 },
                 CV_8UC3,
-                pixels.as_mut_ptr().cast(),
+                rgb_pixels.as_mut_ptr().cast(),
                 Mat_AUTO_STEP,
             )
         }
         .unwrap();
 
-        let mut rgba = unsafe {
-            Mat::new_size(
-                Size {
-                    width: width as i32,
-                    height: height as i32,
-                },
-                CV_8UC4,
-            )
-        }
-        .unwrap();
-
         opencv::imgproc::cvt_color(&rgb, &mut rgba, COLOR_RGB2RGBA, 0).unwrap();
+        println!("Get rgba source image took: {:?}", start.elapsed());
 
+        // # SAFETY:
+        // `rgba.datastart()` and `rgba.dataend()` come from the same allocation
         let len = unsafe { rgba.dataend().offset_from(rgba.datastart()) } as usize;
+
+        // # SAFETY:
+        // Buffer of `len` bytes allocated by opencv
         let rgba_data = unsafe { std::slice::from_raw_parts(rgba.datastart(), len) }.to_owned();
         let rgba8 = image::RgbaImage::from_raw(width, height, rgba_data).unwrap();
 
         let img = DynamicImage::ImageRgba8(rgba8);
-        let ys = model.run(&[img]).unwrap();
-        if let Some(ys) = ys.first() {
-            let Some(person_index) = ys.bboxes.iter().position(|bb| bb.id == person_index) else {
-                println!("No person found");
-                continue;
-            };
+        let start = Instant::now();
+        let mut ys = model.run(&[img]).unwrap();
+        println!("Model eval took: {:?}", start.elapsed());
 
-            if let (Some(mask), Some(_bbox)) =
-                (ys.masks.get(person_index), ys.bboxes.get(person_index))
-            {
-                let mut pixels = Vec::new();
-                for p in mask.pixels() {
-                    pixels.push(p.0);
-                }
+        let Some(ys) = ys.first_mut() else {
+            continue;
+        };
+        let Some(person_index) = ys.bboxes.iter().position(|bb| bb.id == person_index) else {
+            println!("No person found");
+            continue;
+        };
 
-                let greyscale = unsafe {
-                    Mat::new_size_with_data(
-                        Size {
-                            width: width as i32,
-                            height: height as i32,
-                        },
-                        CV_8UC1,
-                        pixels.as_mut_ptr().cast(),
-                        Mat_AUTO_STEP,
-                    )
-                }
-                .unwrap();
+        let Some(mask) = ys.masks.get_mut(person_index) else {
+            continue;
+        };
 
-                let mut mask_rgba = unsafe {
-                    Mat::new_size(
-                        Size {
-                            width: width as i32,
-                            height: height as i32,
-                        },
-                        CV_8UC4,
-                    )
-                }
-                .unwrap();
+        let mut mask_pixels = mask.as_flat_samples_mut();
+        let mask_pixels = mask_pixels.as_mut_slice();
 
-                opencv::imgproc::cvt_color(&greyscale, &mut mask_rgba, COLOR_GRAY2RGBA, 0).unwrap();
-
-                let mut masked = unsafe {
-                    Mat::new_size(
-                        Size {
-                            width: width as i32,
-                            height: height as i32,
-                        },
-                        CV_8UC4,
-                    )
-                }
-                .unwrap();
-                opencv::core::multiply(&mask_rgba, &rgba, &mut masked, 1.0 / 255.0, -1).unwrap();
-                let len = unsafe { masked.dataend().offset_from(masked.datastart()) } as usize;
-                let masked_data = unsafe { std::slice::from_raw_parts(masked.datastart(), len) };
-
-                let masked_image =
-                    image::RgbaImage::from_raw(width, height, masked_data.to_owned()).unwrap();
-                let masked_jpeg =
-                    turbojpeg::compress_image(&masked_image, 85, turbojpeg::Subsamp::Sub2x2)
-                        .unwrap();
-
-                let buf_out = &mut buf_out[..masked_jpeg.len()];
-                buf_out.copy_from_slice(&masked_jpeg);
-                buf_out_meta.field = 0;
-                buf_out_meta.bytesused = masked_jpeg.len() as u32;
-
-                // println!("Buffer");
-                // println!("  sequence   [in] : {}", buf_in_meta.sequence);
-                // println!("  sequence  [out] : {}", buf_out_meta.sequence);
-                // println!("  timestamp  [in] : {}", buf_in_meta.timestamp);
-                // println!("  timestamp [out] : {}", buf_out_meta.timestamp);
-                // println!("  flags      [in] : {}", buf_in_meta.flags);
-                // println!("  flags     [out] : {}", buf_out_meta.flags);
-                // println!("  length     [in] : {}", jpeg.len());
-                // println!("  length    [out] : {}", buf_out.len());
-            }
+        assert_eq!(width * height, mask_pixels.len().try_into().unwrap());
+        // SAFETY:
+        // By assert above, pixels is readable for `width * height` bytes, since it has 8
+        // bits per channel
+        let greyscale = unsafe {
+            Mat::new_size_with_data(
+                Size {
+                    width: width as i32,
+                    height: height as i32,
+                },
+                CV_8UC1,
+                mask_pixels.as_mut_ptr().cast(),
+                Mat_AUTO_STEP,
+            )
         }
+        .unwrap();
 
-        println!("Observed latency: {:?}", start.elapsed());
+        let start = Instant::now();
+        opencv::imgproc::cvt_color(&greyscale, &mut mask_rgba, COLOR_GRAY2RGBA, 0).unwrap();
+        println!("cvt grayscale -> rgba took: {:?}", start.elapsed());
+
+        let start = Instant::now();
+        opencv::core::multiply(&mask_rgba, &rgba, &mut masked, 1.0 / 255.0, -1).unwrap();
+        println!("rgba, mask mutiply took: {:?}", start.elapsed());
+
+        // # SAFETY:
+        // `rgba.datastart()` and `rgba.dataend()` come from the same allocation
+        let len = unsafe { masked.dataend().offset_from(masked.datastart()) } as usize;
+
+        // # SAFETY:
+        // Buffer of `len` bytes allocated by opencv
+        let masked_data = unsafe { std::slice::from_raw_parts(masked.datastart(), len) };
+
+        let start = Instant::now();
+        compressor
+            .compress(
+                turbojpeg::Image {
+                    pixels: masked_data,
+                    width: width as usize,
+                    pitch: 4 * width as usize,
+                    height: height as usize,
+                    format: turbojpeg::PixelFormat::RGBA,
+                },
+                &mut jpeg_buf,
+            )
+            .unwrap();
+        println!("jpeg compress took: {:?}", start.elapsed());
+
+        let start = Instant::now();
+        let buf_out = &mut buf_out[..jpeg_buf.len()];
+        buf_out.copy_from_slice(&jpeg_buf);
+        buf_out_meta.field = 0;
+        buf_out_meta.bytesused = jpeg_buf.len() as u32;
+        println!("Copy into v4l output buffer took: {:?}", start.elapsed());
+
+        // println!("Buffer");
+        // println!("  sequence   [in] : {}", buf_in_meta.sequence);
+        // println!("  sequence  [out] : {}", buf_out_meta.sequence);
+        // println!("  timestamp  [in] : {}", buf_in_meta.timestamp);
+        // println!("  timestamp [out] : {}", buf_out_meta.timestamp);
+        // println!("  flags      [in] : {}", buf_in_meta.flags);
+        // println!("  flags     [out] : {}", buf_out_meta.flags);
+        // println!("  length     [in] : {}", jpeg.len());
+        // println!("  length    [out] : {}", buf_out.len());
+
+        println!("Full loop latency latency: {:?}", iteration_start.elapsed());
     }
 }
