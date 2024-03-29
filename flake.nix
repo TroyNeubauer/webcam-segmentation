@@ -26,6 +26,11 @@
             gcc12
             pkg-config
 
+            # libjpeg
+            cmake
+            nasm
+            libjpeg
+
             v4l-utils
             onnxruntime
             openssl
