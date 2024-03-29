@@ -105,19 +105,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut compressor = Compressor::new().unwrap();
     let mut decompressor = Decompressor::new().unwrap();
     let mut jpeg_buf = OutputBuf::new_owned();
-    let mut rgb_pixels = vec![0; 3 * (width * height) as usize];
-
-    // SAFETY: Memory allocated by opencv
-    let mut rgba = unsafe {
-        Mat::new_size(
-            Size {
-                width: width as i32,
-                height: height as i32,
-            },
-            CV_8UC4,
-        )
-    }
-    .unwrap();
+    let mut rgba_pixels = vec![0; 4 * (width * height) as usize];
 
     // SAFETY: Memory allocated by opencv
     let mut mask_rgba = unsafe {
@@ -158,11 +146,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .decompress(
                 jpeg,
                 turbojpeg::Image {
-                    pixels: rgb_pixels.as_mut_slice(),
+                    pixels: rgba_pixels.as_mut_slice(),
                     width: width as usize,
-                    pitch: 3 * width as usize,
+                    pitch: 4 * width as usize,
                     height: height as usize,
-                    format: turbojpeg::PixelFormat::RGB,
+                    format: turbojpeg::PixelFormat::RGBA,
                 },
             )
             .unwrap();
@@ -172,20 +160,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // 1. `rgb_pixels` lives for the entire duration of the loop
         // 2. `rgb_pixels` has len `width * height * 3` by allocation above
         // 3. `rgb_pixels` decoded by turbojpeg as turbojpeg::PixelFormat::RGB
-        let rgb = unsafe {
+        let rgba = unsafe {
             Mat::new_size_with_data(
                 Size {
                     width: width as i32,
                     height: height as i32,
                 },
-                CV_8UC3,
-                rgb_pixels.as_mut_ptr().cast(),
+                CV_8UC4,
+                rgba_pixels.as_mut_ptr().cast(),
                 Mat_AUTO_STEP,
             )
         }
         .unwrap();
 
-        opencv::imgproc::cvt_color(&rgb, &mut rgba, COLOR_RGB2RGBA, 0).unwrap();
         println!("Get rgba source image took: {:?}", start.elapsed());
 
         // # SAFETY:
@@ -199,10 +186,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let img = DynamicImage::ImageRgba8(rgba8);
         let start = Instant::now();
-        let mut ys = model.run(&[img]).unwrap();
+        let ys = model.run(&img).unwrap();
         println!("Model eval took: {:?}", start.elapsed());
 
-        let Some(ys) = ys.first_mut() else {
+        let Some(mut ys) = ys else {
             continue;
         };
         let Some(person_index) = ys.bboxes.iter().position(|bb| bb.id == person_index) else {

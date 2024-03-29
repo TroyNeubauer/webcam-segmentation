@@ -6,7 +6,7 @@ pub mod ort_backend;
 pub mod yolo_result;
 pub use crate::cli::Args;
 pub use crate::model::YOLOv8;
-pub use crate::ort_backend::{Batch, OrtBackend, OrtConfig, OrtEP, YOLOTask};
+pub use crate::ort_backend::{Batch, OrtBackend, OrtConfig, OrtEP};
 pub use crate::yolo_result::{Bbox, Embedding, Point2, YOLOResult};
 
 pub fn non_max_suppression(

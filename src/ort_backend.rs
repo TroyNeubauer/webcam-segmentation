@@ -1,16 +1,10 @@
 use anyhow::Result;
-use clap::ValueEnum;
 use half::f16;
 use ndarray::{Array, CowArray, IxDyn};
 use ort::execution_providers::{CUDAExecutionProviderOptions, TensorRTExecutionProviderOptions};
 use ort::tensor::TensorElementDataType;
 use ort::{Environment, ExecutionProvider, Session, SessionBuilder, Value};
 use regex::Regex;
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
-pub enum YOLOTask {
-    Segment,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OrtEP {
@@ -73,7 +67,6 @@ impl OrtInputs {
 pub struct OrtConfig {
     // ORT config
     pub f: String,
-    pub task: Option<YOLOTask>,
     pub ep: OrtEP,
     pub trt_fp16: bool,
     pub batch: Batch,
@@ -84,7 +77,6 @@ pub struct OrtConfig {
 pub struct OrtBackend {
     // ORT engine
     session: Session,
-    task: YOLOTask,
     ep: OrtEP,
     batch: Batch,
     inputs: OrtInputs,
@@ -149,27 +141,8 @@ impl OrtBackend {
             .with_execution_providers([provider])?
             .with_model_from_file(args.f)?;
 
-        // task: using given one or guessing
-        let task = match args.task {
-            Some(task) => task,
-            None => match session.metadata() {
-                Err(_) => panic!("No metadata found. Try making it explicit by `--task`"),
-                Ok(metadata) => match metadata.custom("task") {
-                    Err(_) => panic!("Can not get custom value. Try making it explicit by `--task`"),
-                    Ok(value) => match value {
-                        None => panic!("No correspoing value of `task` found in metadata. Make it explicit by `--task`"),
-                        Some(task) => match task.as_str() {
-                            "segment" => YOLOTask::Segment,
-                            x => todo!("{:?} is not supported for now!", x),
-                        },
-                    },
-                },
-            },
-        };
-
         Ok(Self {
             session,
-            task,
             ep,
             batch,
             inputs,
@@ -273,19 +246,27 @@ impl OrtBackend {
         }
     }
 
-    pub fn run(&self, xs: Array<f32, IxDyn>, profile: bool) -> Result<Vec<Array<f32, IxDyn>>> {
+    pub fn run(
+        &self,
+        input_tensor: Array<f32, IxDyn>,
+        profile: bool,
+    ) -> Result<Vec<Array<f32, IxDyn>>> {
         // ORT inference
         match self.dtype() {
-            TensorElementDataType::Float16 => self.run_fp16(xs, profile),
-            TensorElementDataType::Float32 => self.run_fp32(xs, profile),
+            TensorElementDataType::Float16 => self.run_fp16(input_tensor, profile),
+            TensorElementDataType::Float32 => self.run_fp32(input_tensor, profile),
             _ => todo!(),
         }
     }
 
-    pub fn run_fp16(&self, xs: Array<f32, IxDyn>, profile: bool) -> Result<Vec<Array<f32, IxDyn>>> {
+    pub fn run_fp16(
+        &self,
+        input_tensor: Array<f32, IxDyn>,
+        profile: bool,
+    ) -> Result<Vec<Array<f32, IxDyn>>> {
         // f32->f16
         let t = std::time::Instant::now();
-        let xs = xs.mapv(f16::from_f32);
+        let xs = input_tensor.mapv(f16::from_f32);
         if profile {
             println!("[ORT f32->f16]: {:?}", t.elapsed());
         }
@@ -420,10 +401,6 @@ impl OrtBackend {
 
     pub fn ep(&self) -> &OrtEP {
         &self.ep
-    }
-
-    pub fn task(&self) -> YOLOTask {
-        self.task.clone()
     }
 
     pub fn names(&self) -> Option<Vec<String>> {

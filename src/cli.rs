@@ -1,7 +1,5 @@
 use clap::Parser;
 
-use crate::YOLOTask;
-
 #[derive(Parser, Clone)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
@@ -40,10 +38,6 @@ pub struct Args {
     /// using TensorRT --fp16
     #[arg(long)]
     pub fp16: bool,
-
-    /// specify YOLO task
-    #[arg(long, value_enum)]
-    pub task: Option<YOLOTask>,
 
     /// num_classes
     #[arg(long)]
