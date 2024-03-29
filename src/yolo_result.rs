@@ -5,8 +5,8 @@ use ndarray::{Array, Axis, IxDyn};
 pub struct YOLOResult {
     // YOLO tasks results of an image
     pub probs: Option<Embedding>,
-    pub bboxes: Option<Vec<Bbox>>,
-    pub keypoints: Option<Vec<Vec<Point2>>>,
+    pub bboxes: Vec<Bbox>,
+    pub keypoints: Vec<Vec<Point2>>,
     pub masks: Vec<image::ImageBuffer<Luma<u8>, Vec<u8>>>,
 }
 
@@ -101,12 +101,12 @@ impl Embedding {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Bbox {
     // a bounding box around an object
-    xmin: f32,
-    ymin: f32,
-    width: f32,
-    height: f32,
-    id: usize,
-    confidence: f32,
+    pub xmin: f32,
+    pub ymin: f32,
+    pub width: f32,
+    pub height: f32,
+    pub id: usize,
+    pub confidence: f32,
 }
 
 impl Bbox {

@@ -230,15 +230,12 @@ impl YOLOv8 {
                 if let Some(coefs) = elem.2 {
                     let proto = protos.unwrap().slice(s![idx, .., .., ..]);
                     let (nm, nh, nw) = proto.dim();
-                    dbg!(nm, nh, nw);
 
                     // coefs * proto -> mask
                     let coefs = Array::from_shape_vec((1, nm), coefs)?; // (n, nm)
                     let proto = proto.to_owned().into_shape((nm, nh * nw))?; // (nm, nh*nw)
                     let mask = coefs.dot(&proto).into_shape((nh, nw, 1))?; // (nh, nw, n)
-                    dbg!(mask.shape());
-
-                    // build image from ndarray
+                                                                           // build image from ndarray
                     let mask_im: ImageBuffer<image::Luma<_>, Vec<f32>> =
                         match ImageBuffer::from_raw(nw as u32, nh as u32, mask.into_raw_vec()) {
                             Some(image) => image,
@@ -263,10 +260,15 @@ impl YOLOv8 {
                     let mut mask_original_cropped = mask_original.into_luma8();
                     for y in 0..height_original as usize {
                         for x in 0..width_original as usize {
-                            if x < elem.0.xmin() as usize
-                                || x > elem.0.xmax() as usize
-                                || y < elem.0.ymin() as usize
-                                || y > elem.0.ymax() as usize
+                            let padding = 10;
+                            let xmin = elem.0.xmin - 10.0;
+                            let xmax = elem.0.xmax() + 10.0;
+                            let ymin = elem.0.ymin - 10.0;
+                            let ymax = elem.0.ymax() + 10.0;
+                            if x < xmin as usize
+                                || x > xmax as usize
+                                || y < ymin as usize
+                                || y > ymax as usize
                             {
                                 mask_original_cropped.put_pixel(
                                     x as u32,
@@ -284,16 +286,8 @@ impl YOLOv8 {
             // save each result
             let y = YOLOResult {
                 probs: None,
-                bboxes: if !y_bboxes.is_empty() {
-                    Some(y_bboxes)
-                } else {
-                    None
-                },
-                keypoints: if !y_kpts.is_empty() {
-                    Some(y_kpts)
-                } else {
-                    None
-                },
+                bboxes: y_bboxes,
+                keypoints: y_kpts,
                 masks,
             };
             ys.push(y);

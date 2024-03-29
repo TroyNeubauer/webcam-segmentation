@@ -115,19 +115,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut in_stream = Stream::with_buffers(&webcam, Type::VideoCapture, buffer_count)
         .expect("Failed to create buffer stream");
 
-    println!("");
-    println!("");
-    println!("");
-    println!("");
-    println!("");
     let mut out_stream =
         Stream::with_buffers(&webcam_masked, Type::VideoOutput, buffer_count).unwrap();
+    let person_index = model
+        .names()
+        .iter()
+        .enumerate()
+        .find_map(|(idx, name)| if name == "person" { Some(idx) } else { None })
+        .expect("Model missing `person` bbox name");
 
-    let mut i = 0;
     loop {
-        i += 1;
-        let write = i == 100;
-
         let (jpeg, buf_in_meta) = CaptureStream::next(&mut in_stream).unwrap();
         let (buf_out, buf_out_meta) = v4l::io::traits::OutputStream::next(&mut out_stream).unwrap();
 
@@ -138,7 +135,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut decoder = JpegDecoder::new(jpeg);
         // decode the file
         let mut pixels = decoder.decode().unwrap();
-        dbg!(pixels.len());
 
         //let yuv = Mat::from_slice_rows_cols(buf, height, width as usize).unwrap();
         let rgb = unsafe {
@@ -167,14 +163,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         opencv::imgproc::cvt_color(&rgb, &mut rgba, COLOR_RGB2RGBA, 0).unwrap();
 
-        if write {
-            let _ = opencv::imgcodecs::imwrite(
-                &format!("frame.bmp"),
-                &rgba,
-                &opencv::core::Vector::new(),
-            );
-        }
-
         let len = unsafe { rgba.dataend().offset_from(rgba.datastart()) } as usize;
         let rgba_data = unsafe { std::slice::from_raw_parts(rgba.datastart(), len) }.to_owned();
         let rgba8 = image::RgbaImage::from_raw(width, height, rgba_data).unwrap();
@@ -182,8 +170,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let img = DynamicImage::ImageRgba8(rgba8);
         let ys = model.run(&[img]).unwrap();
         if let Some(ys) = ys.first() {
-            for (i, mask) in ys.masks.iter().enumerate() {
-                dbg!(mask.width(), mask.height());
+            let detection_names: Vec<_> = ys
+                .bboxes
+                .iter()
+                .map(|b| model.names()[b.id()].as_str())
+                .collect();
+
+            let Some(person_index) = detection_names.iter().position(|name| *name == "person")
+            else {
+                println!("No person found");
+                continue;
+            };
+
+            if let (Some(mask), Some(bbox)) =
+                (ys.masks.get(person_index), ys.bboxes.get(person_index))
+            {
                 let mut pixels = Vec::new();
                 for p in mask.pixels() {
                     pixels.push(p.0);
@@ -240,59 +241,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 buf_out_meta.field = 0;
                 buf_out_meta.bytesused = masked_jpeg.len() as u32;
 
-                println!("Buffer");
-                println!("  sequence   [in] : {}", buf_in_meta.sequence);
-                println!("  sequence  [out] : {}", buf_out_meta.sequence);
-                println!("  timestamp  [in] : {}", buf_in_meta.timestamp);
-                println!("  timestamp [out] : {}", buf_out_meta.timestamp);
-                println!("  flags      [in] : {}", buf_in_meta.flags);
-                println!("  flags     [out] : {}", buf_out_meta.flags);
-                println!("  length     [in] : {}", jpeg.len());
-                println!("  length    [out] : {}", buf_out.len());
-
-                if write {
-                    let _ = opencv::imgcodecs::imwrite(
-                        &format!("mask_rgba_{i}.bmp"),
-                        &mask_rgba,
-                        &opencv::core::Vector::new(),
-                    );
-
-                    let _ = opencv::imgcodecs::imwrite(
-                        &format!("mask_{i}.bmp"),
-                        &greyscale,
-                        &opencv::core::Vector::new(),
-                    );
-
-                    let mut masked_rgb = unsafe {
-                        Mat::new_size(
-                            Size {
-                                width: width as i32,
-                                height: height as i32,
-                            },
-                            CV_8UC3,
-                        )
-                    }
-                    .unwrap();
-
-                    opencv::imgproc::cvt_color(&masked, &mut masked_rgb, COLOR_RGBA2BGR, 0)
-                        .unwrap();
-
-                    let _ = opencv::imgcodecs::imwrite(
-                        &format!("masked_{i}.bmp"),
-                        &masked_rgb,
-                        &opencv::core::Vector::new(),
-                    );
-
-                    std::fs::write("img.jpeg", jpeg).unwrap();
-                }
+                // println!("Buffer");
+                // println!("  sequence   [in] : {}", buf_in_meta.sequence);
+                // println!("  sequence  [out] : {}", buf_out_meta.sequence);
+                // println!("  timestamp  [in] : {}", buf_in_meta.timestamp);
+                // println!("  timestamp [out] : {}", buf_out_meta.timestamp);
+                // println!("  flags      [in] : {}", buf_in_meta.flags);
+                // println!("  flags     [out] : {}", buf_out_meta.flags);
+                // println!("  length     [in] : {}", jpeg.len());
+                // println!("  length    [out] : {}", buf_out.len());
             }
         }
 
         println!("Observed latency: {:?}", start.elapsed());
-
-        if write {
-            break;
-        }
     }
 
     Ok(())
