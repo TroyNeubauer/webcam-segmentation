@@ -260,11 +260,11 @@ impl YOLOv8 {
                     let mut mask_original_cropped = mask_original.into_luma8();
                     for y in 0..height_original as usize {
                         for x in 0..width_original as usize {
-                            let padding = 10;
-                            let xmin = elem.0.xmin - 10.0;
-                            let xmax = elem.0.xmax() + 10.0;
-                            let ymin = elem.0.ymin - 10.0;
-                            let ymax = elem.0.ymax() + 10.0;
+                            let padding = 10.0;
+                            let xmin = elem.0.xmin - padding;
+                            let xmax = elem.0.xmax() + padding;
+                            let ymin = elem.0.ymin - padding;
+                            let ymax = elem.0.ymax() + padding;
                             if x < xmin as usize
                                 || x > xmax as usize
                                 || y < ymin as usize

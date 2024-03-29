@@ -4,10 +4,9 @@ use v4l::io::traits::CaptureStream;
 use v4l::video::Capture;
 use v4l::Device;
 use v4l::FourCC;
-use zune_jpeg::JpegDecoder;
 
 fn main() {
-    opencv::core::set_num_threads(1);
+    opencv::core::set_num_threads(1).unwrap();
     // Create a new capture device with a few extra parameters
     let mut dev = Device::new(0).expect("Failed to open device");
 
@@ -68,9 +67,6 @@ fn main() {
     let mut stream = Stream::with_buffers(&mut dev, Type::VideoCapture, 4)
         .expect("Failed to create buffer stream");
 
-    let win_name = "webcam";
-    opencv::highgui::named_window(win_name, opencv::highgui::WINDOW_AUTOSIZE);
-
     // At this point, the stream is ready and all buffers are setup.
     // We can now read frames (represented as buffers) by iterating through
     // the stream. Once an error condition occurs, the iterator will return
@@ -85,9 +81,9 @@ fn main() {
         );
         use opencv::{core::*, imgproc::*};
 
-        let mut decoder = JpegDecoder::new(jpeg);
-        // decode the file
-        let mut pixels = decoder.decode().unwrap();
+        let mut pixels = turbojpeg::decompress_image::<image::Rgb<u8>>(jpeg)
+            .unwrap()
+            .into_vec();
         dbg!(pixels.len());
 
         //let yuv = Mat::from_slice_rows_cols(buf, height, width as usize).unwrap();
@@ -115,9 +111,9 @@ fn main() {
         }
         .unwrap();
 
-        opencv::imgproc::cvt_color(&rgb, &mut rgba, COLOR_RGB2RGBA, 0);
+        opencv::imgproc::cvt_color(&rgb, &mut rgba, COLOR_RGB2RGBA, 0).unwrap();
 
-        opencv::imgcodecs::imwrite("out.bmp", &rgba, &opencv::core::Vector::new());
+        opencv::imgcodecs::imwrite("out.bmp", &rgba, &opencv::core::Vector::new()).unwrap();
         break;
 
         // To process the captured data, you can pass it somewhere else.

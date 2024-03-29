@@ -165,15 +165,7 @@ impl Bbox {
 
     pub fn cxcy(&self) -> Point2 {
         Point2::new(self.xmin + self.width / 2., self.ymin + self.height / 2.)
-    }
-
-    pub fn id(&self) -> usize {
-        self.id
-    }
-
-    pub fn confidence(&self) -> f32 {
-        self.confidence
-    }
+    } 
 
     pub fn area(&self) -> f32 {
         self.width * self.height

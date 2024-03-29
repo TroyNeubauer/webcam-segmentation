@@ -1,30 +1,29 @@
-use std::io::Write;
+
 use std::time::Instant;
 
 use clap::Parser;
 
 use image::DynamicImage;
-use v4l::Fraction;
 use yolov8_rs::{Args, YOLOv8};
 
 use v4l::buffer::Type;
 use v4l::io::mmap::Stream;
 use v4l::io::traits::CaptureStream;
-use v4l::prelude::*;
 use v4l::video::Capture;
 use v4l::Device;
 use v4l::FourCC;
-use zune_jpeg::JpegDecoder;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let _ = opencv::core::set_num_threads(1);
     let args = Args::parse();
 
     let mut model = YOLOv8::new(args).unwrap();
     model.summary(); // model info
 
-    let _ = opencv::core::set_num_threads(1);
+    // ========== Create Input Device ==========
+
     // Create a new capture device with a few extra parameters
-    let mut webcam = Device::new(0).expect("Failed to open device");
+    let webcam = Device::new(0).expect("Failed to open device");
 
     let width = 1280;
     let height = 720;
@@ -63,7 +62,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         webcam.set_format(&fmt).expect("Failed to write format");
     }
 
-    let mut webcam_masked = Device::new(10).expect("Failed to open device");
+    // ========== Create Output Device ==========
+
+    let webcam_masked = Device::new(10).expect("Failed to open device");
     {
         let source_fmt = Capture::format(&webcam)?;
         let sink_fmt = v4l::video::Output::set_format(&webcam_masked, &source_fmt)?;
@@ -77,39 +78,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "New out format:\n{}",
             v4l::video::Output::format(&webcam_masked)?
         );
-
-        /*
-        let mut fmt = webcam_masked.format().unwrap();
-        fmt.width = width;
-        fmt.height = height;
-        fmt.fourcc = FourCC::new(b"MJPG");
-        let sink_fmt = webcam_masked
-            .set_format(&fmt)
-            .expect("Failed to write format");
-        let source_fmt = webcam.format().unwrap();
-
-        dbg!(source_fmt, sink_fmt);
-
-        if source_fmt.width != sink_fmt.width || source_fmt.height != sink_fmt.height {
-            panic!("failed to enforce source format on sink device");
-        }
-
-        let loopback_caps = webcam_masked.query_controls().unwrap();
-        println!("Active out controls:\n{:?}", loopback_caps);
-
-        println!(
-            "Active out format:\n{}",
-            v4l::video::Output::format(&webcam_masked).unwrap()
-        );
-
-        let mut loopback_caps = v4l::video::Output::params(&webcam_masked).unwrap();
-
-        loopback_caps.interval = Fraction::new(1, 60);
-        println!("Active out parameters:\n{loopback_caps}",);
-        v4l::video::Output::set_params(&webcam_masked, &loopback_caps).unwrap();
-        // v4l::video::Capture::set_params(&webcam_masked, &loopback_caps).unwrap();
-        */
     }
+
+    // ========== Create Buffers ==========
 
     let buffer_count = 4;
     let mut in_stream = Stream::with_buffers(&webcam, Type::VideoCapture, buffer_count)
@@ -125,16 +96,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Model missing `person` bbox name");
 
     loop {
-        let (jpeg, buf_in_meta) = CaptureStream::next(&mut in_stream).unwrap();
+        let (jpeg, _buf_in_meta) = CaptureStream::next(&mut in_stream).unwrap();
         let (buf_out, buf_out_meta) = v4l::io::traits::OutputStream::next(&mut out_stream).unwrap();
 
         let start = Instant::now();
 
         use opencv::{core::*, imgproc::*};
 
-        let mut decoder = JpegDecoder::new(jpeg);
-        // decode the file
-        let mut pixels = decoder.decode().unwrap();
+        let mut pixels = turbojpeg::decompress_image::<image::Rgb<u8>>(jpeg)
+            .unwrap()
+            .into_vec();
 
         //let yuv = Mat::from_slice_rows_cols(buf, height, width as usize).unwrap();
         let rgb = unsafe {
@@ -170,19 +141,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let img = DynamicImage::ImageRgba8(rgba8);
         let ys = model.run(&[img]).unwrap();
         if let Some(ys) = ys.first() {
-            let detection_names: Vec<_> = ys
-                .bboxes
-                .iter()
-                .map(|b| model.names()[b.id()].as_str())
-                .collect();
-
-            let Some(person_index) = detection_names.iter().position(|name| *name == "person")
-            else {
+            let Some(person_index) = ys.bboxes.iter().position(|bb| bb.id == person_index) else {
                 println!("No person found");
                 continue;
             };
 
-            if let (Some(mask), Some(bbox)) =
+            if let (Some(mask), Some(_bbox)) =
                 (ys.masks.get(person_index), ys.bboxes.get(person_index))
             {
                 let mut pixels = Vec::new();
@@ -255,6 +219,4 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         println!("Observed latency: {:?}", start.elapsed());
     }
-
-    Ok(())
 }

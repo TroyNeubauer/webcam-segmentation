@@ -15,7 +15,6 @@ chrono = { version = "0.4.30" }
 half = { version = "2.3.1" }
 v4l = "0.14.0"
 opencv = { version = "0.89.0", features = ["clang-runtime", "highgui", "imgproc", "imgcodecs"] }
-zune-jpeg = "0.4.11"
 turbojpeg = { version = "1.0.1", features = ["image"] }
 
 [dependencies.ort]
