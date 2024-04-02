@@ -71,6 +71,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ========== Create Output Device ==========
 
+    // Create with:
+    // `sudo modprobe v4l2loopback video_nr=10 card_label="Background cropped webcam stream"`
     let webcam_masked = Device::new(10).expect("Failed to open device");
     {
         let source_fmt = Capture::format(&webcam)?;

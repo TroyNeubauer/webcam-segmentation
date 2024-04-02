@@ -3,8 +3,11 @@
 - [x] Read from from v4l device
 - [x] Run segmentation inference and obtain mask
 - [x] Crop frames using mask provided by model 
-- [ ] Cleanup
+- [x] Cleanup
   - [x] Fix colorspace
-  - [ ] Optimize if needed
-- [ ] Write cropped frames to loopback v4l device
-- [ ] Integrate with obs
+  - [x] Optimize if needed
+- [x] Write cropped frames to loopback v4l device
+- [x] Integrate with obs
+- [ ] Fix glitching hands
+- [ ] Send empty frames when no detections are found
+- [ ] Long-running reliability
