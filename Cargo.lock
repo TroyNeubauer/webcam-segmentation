@@ -1058,6 +1058,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af190c94f2773fdb3729c55b007a722abb5384da03bc0986df4c289bf5567e96"
 
 [[package]]
+name = "webcam-segmentation"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "crossbeam-channel",
+ "half",
+ "image",
+ "ndarray",
+ "opencv",
+ "ort",
+ "regex",
+ "turbojpeg",
+ "v4l",
+]
+
+[[package]]
 name = "webp"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1184,22 +1202,4 @@ dependencies = [
  "libc",
  "linux-raw-sys",
  "rustix",
-]
-
-[[package]]
-name = "yolov8-rs"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "crossbeam-channel",
- "half",
- "image",
- "ndarray",
- "opencv",
- "ort",
- "regex",
- "turbojpeg",
- "v4l",
 ]

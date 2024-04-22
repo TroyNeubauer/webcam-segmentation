@@ -10,7 +10,7 @@ use image::DynamicImage;
 use turbojpeg::Compressor;
 use turbojpeg::Decompressor;
 use turbojpeg::OutputBuf;
-use yolov8_rs::{Args, YOLOv8};
+use webcam_segmentation::{Args, YOLOv8};
 
 use v4l::buffer::{Metadata, Type};
 use v4l::io::mmap::Stream;
