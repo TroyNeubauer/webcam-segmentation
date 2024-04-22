@@ -61,6 +61,13 @@ rustPlatform.buildRustPackage rec {
     export PKG_CONFIG_PATH=${pkgs.opencv}:PKG_CONFIG_PATH
   '';
 
+  postInstall = ''
+    for dso in ${pkgs.onnxruntime}/lib/libonnxruntime.so*1.*
+    do
+      patchelf --add-needed $dso $out/bin/webcam-segmentation
+    done
+  '';
+
   meta = {
     description = "A Rust based service that crops the background from a live video device using v4l and YOLOv8";
     homepage = "https://github.com/TroyNeubauer/webcam-segmentation";
